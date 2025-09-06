@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.lang.Thread;
 
 public class Peer {
     private int port;
@@ -54,7 +55,27 @@ public class Peer {
         int port = Integer.parseInt(args[0]);
         try{
             Peer peer = new Peer(port);
-            peer.start();
+
+        // Start server socket in a new thread
+        new Thread(() -> {
+            try {
+                peer.start();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+
+        // Wait a bit to make sure the server starts
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        // Try to connect to the other peer
+        if(port == 5000){
+            peer.connectToPeer("localhost", 5001);
+        }
         }catch (IOException e){
             e.printStackTrace();
         }
