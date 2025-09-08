@@ -65,17 +65,15 @@ public class Peer {
             }
         }).start();
 
-        // Wait a bit to make sure the server starts
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
         // Try to connect to the other peer
         if(port == 5000){
             peer.connectToPeer("localhost", 5001);
+            peer.connectToPeer("localhost", 5002);
         }
+        if(port == 5001){
+            peer.connectToPeer("localhost", 5002);
+        }
+
         }catch (IOException e){
             e.printStackTrace();
         }
