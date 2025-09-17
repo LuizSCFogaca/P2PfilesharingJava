@@ -4,11 +4,11 @@ import java.lang.Thread;
 
 public class Peer {
     private int port;
-    private ServerSocket serverSocket;
+    private DatagramSocket datagramsocket;
     
     public Peer(int port) throws IOException{
         this.port = port;
-        this.serverSocket = new ServerSocket(port);
+        this.datagramsocket = new DatagramSocket(port);
     };
 
     public int getPort(){
@@ -19,62 +19,74 @@ public class Peer {
         this.port = port;
     };
 
-    public ServerSocket getServerSocket(){
-        return serverSocket;
+    public DatagramSocket getdatagramsocket(){
+        return datagramsocket;
     };
 
-    public void setServerSocket(ServerSocket serverSocket){
-        this.serverSocket = serverSocket;
+    public void setdatagramsocket(DatagramSocket datagramsocket){
+        this.datagramsocket = datagramsocket;
     };
 
-    public void connectToPeer(String host, int port){
-        try(Socket socket = new Socket(host, port);
-        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-        BufferedReader in = new BufferedReader(new InputStreamReader((socket.getInputStream())))){
-            out.println("Hello from peer on port: " + this.port);
-            String response = in.readLine();
-            System.out.println("Receive from another peer: " + response);
-        }catch (IOException e){
+    public void connectToPeer(String host, int port, String message) {
+        try {
+            byte[] buffer = message.getBytes();
+            InetAddress address = InetAddress.getByName(host);
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
+            datagramsocket.send(packet);
+            System.out.println("Sent to " + host + ":" + port + " -> " + message);
+        } catch (IOException e) {
             e.printStackTrace();
         }
-    };
+    }
 
-    public void start() throws IOException {
-        System.out.println("peer started on port: "+ port);
-        while(true){
-            Socket clientSocket = serverSocket.accept();
-            new Thread(new clientHandler(clientSocket)).start();
+private boolean replied = false;
+    public void start() {
+        System.out.println("Peer started on port: " + port);
+
+        byte[] buffer = new byte[1024];
+        while (true) {
+            try {
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                datagramsocket.receive(packet);
+                String msg = new String(packet.getData(), 0, packet.getLength());
+                System.out.println("Received from " + packet.getAddress() + ":" + packet.getPort() + " -> " + msg);
+
+                // Send response back
+                if(!replied){ 
+                    String response = "Hello back from peer on port " + this.port;
+                    byte[] responseData = response.getBytes();
+                    DatagramPacket responsePacket = new DatagramPacket(responseData, responseData.length, packet.getAddress(), packet.getPort());
+                    datagramsocket.send(responsePacket);
+                    replied = true;
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-    };
+    }
 
-        public static void main(String[] args) {
-        if(args.length != 1){
+        public static void main(String[] args)throws IOException{
+        if (args.length != 1) {
             System.out.println("Usage: java Peer <port>");
             return;
         }
         int port = Integer.parseInt(args[0]);
-        try{
+        try {
             Peer peer = new Peer(port);
 
-        // Start server socket in a new thread
-        new Thread(() -> {
-            try {
-                peer.start();
-            } catch (IOException e) {
-                e.printStackTrace();
+            // Start listening in a new thread
+            new Thread(peer::start).start();
+
+            // Try to connect to other peers
+            if (port == 5000) {
+                peer.connectToPeer("localhost", 5001, "Hello from peer on port 5000");
+                peer.connectToPeer("localhost", 5002, "Hello from peer on port 5000");
             }
-        }).start();
-
-        // Try to connect to the other peer
-        if(port == 5000){
-            peer.connectToPeer("localhost", 5001);
-            peer.connectToPeer("localhost", 5002);
-        }
-        if(port == 5001){
-            peer.connectToPeer("localhost", 5002);
-        }
-
-        }catch (IOException e){
+            else if (port == 5001) {
+                peer.connectToPeer("localhost", 5002, "Hello from peer on port 5001");
+            }
+            
+        } catch (SocketException e) {
             e.printStackTrace();
         }
     }
