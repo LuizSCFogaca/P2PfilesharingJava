@@ -1,14 +1,20 @@
 import java.io.*;
 import java.net.*;
 import java.lang.Thread;
+import java.util.*;
+import java.nio.file.*;
 
 public class Peer {
     private int port;
     private DatagramSocket datagramsocket;
-    
-    public Peer(int port) throws IOException{
+    private String sharedDirectory;
+    private Set<String> knownPeersAddresses;
+
+    public Peer(int port, String sharedDirectory, Set<String> knownPeersAddresses) throws IOException{
         this.port = port;
         this.datagramsocket = new DatagramSocket(port);
+        this.sharedDirectory = sharedDirectory;
+        this.knownPeersAddresses = knownPeersAddresses;
     };
 
     public int getPort(){
@@ -27,67 +33,104 @@ public class Peer {
         this.datagramsocket = datagramsocket;
     };
 
-    public void connectToPeer(String host, int port, String message) {
-        try {
-            byte[] buffer = message.getBytes();
-            InetAddress address = InetAddress.getByName(host);
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
-            datagramsocket.send(packet);
-            System.out.println("Sent to " + host + ":" + port + " -> " + message);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+    public void startListening() {
+        Thread listenerThread = new Thread(this::listenForMessages);
+        listenerThread.start();
+    };
 
-private boolean replied = false;
-    public void start() {
-        System.out.println("Peer started on port: " + port);
+    private void listenForMessages() {
+        System.out.println("Nó iniciado e ouvindo na porta: " + port);
+        byte[] buffer = new byte[65507]; // Tamanho máximo de um pacote UDP
 
-        byte[] buffer = new byte[1024];
         while (true) {
             try {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                datagramsocket.receive(packet);
-                String msg = new String(packet.getData(), 0, packet.getLength());
-                System.out.println("Received from " + packet.getAddress() + ":" + packet.getPort() + " -> " + msg);
-
-                // Send response back
-                if(!replied){ 
-                    String response = "Hello back from peer on port " + this.port;
-                    byte[] responseData = response.getBytes();
-                    DatagramPacket responsePacket = new DatagramPacket(responseData, responseData.length, packet.getAddress(), packet.getPort());
-                    datagramsocket.send(responsePacket);
-                    replied = true;
-                }
+                datagramsocket.receive(packet); // Bloqueia até receber um pacote
+                processIncomingPacket(packet);
             } catch (IOException e) {
-                e.printStackTrace();
+                System.err.println("Erro de I/O no listener: " + e.getMessage());
             }
         }
-    }
+    };
+    
+    private void processIncomingPacket(DatagramPacket packet) {
+        String message = new String(packet.getData(), 0, packet.getLength());
 
-        public static void main(String[] args)throws IOException{
-        if (args.length != 1) {
-            System.out.println("Usage: java Peer <port>");
-            return;
+        if (message.startsWith("SHARE_FILE:")) {
+            handleFileSharing(message);
+        } else if (message.startsWith("DELETE_FILE:")) {
+            handleFileDeletion(message);
         }
-        int port = Integer.parseInt(args[0]);
+    };
+
+    private void handleFileSharing(String message) {
         try {
-            Peer peer = new Peer(port);
+            String[] parts = message.split(":", 3);
+            if (parts.length == 3) {
+                String fileName = parts[1];
+                byte[] fileContent = parts[2].getBytes();
 
-            // Start listening in a new thread
-            new Thread(peer::start).start();
-
-            // Try to connect to other peers
-            if (port == 5000) {
-                peer.connectToPeer("localhost", 5001, "Hello from peer on port 5000");
-                peer.connectToPeer("localhost", 5002, "Hello from peer on port 5000");
+                Path filePath = Paths.get(sharedDirectory, fileName);
+                Files.write(filePath, fileContent);
+                System.out.println("Arquivo recebido e salvo: " + fileName);
             }
-            else if (port == 5001) {
-                peer.connectToPeer("localhost", 5002, "Hello from peer on port 5001");
-            }
-            
-        } catch (SocketException e) {
-            e.printStackTrace();
+        } catch (IOException e) {
+            System.err.println("Falha ao salvar arquivo recebido: " + e.getMessage());
         }
-    }
+    };
+
+    public void handleFileDeletion(String message) {
+        try {
+            String[] parts = message.split(":", 2);
+            if (parts.length == 2) {
+                String fileName = parts[1];
+                Path filePath = Paths.get(sharedDirectory, fileName);
+                Files.deleteIfExists(filePath);
+                System.out.println("Arquivo deletado: " + fileName);
+            }
+        } catch (IOException e) {
+            System.err.println("Falha ao deletar arquivo: " + e.getMessage());
+        }
+    };
+
+    public void shareFileWithPeers(String fileName) {
+        try {
+            Path filePath = Paths.get(sharedDirectory, fileName);
+            if (!Files.exists(filePath)) {
+                System.err.println("Arquivo não encontrado para envio: " + fileName);
+                return;
+            }
+            byte[] content = Files.readAllBytes(filePath);
+            String header = "SHARE_FILE:" + fileName + ":";
+            byte[] message = (header + new String(content)).getBytes();
+            broadcastMessage(message);
+            System.out.println("Arquivo '" + fileName + "' compartilhado com a rede.");
+        } catch (IOException e) {
+            System.err.println("Não foi possível ler ou enviar o arquivo: " + e.getMessage());
+        }
+    };
+
+    public void requestFileDeletion(String fileName) {
+        String message = "DELETE_FILE:" + fileName;
+        broadcastMessage(message.getBytes());
+        System.out.println("Solicitação de deleção para '" + fileName + "' enviada à rede.");
+    };
+
+
+    private void broadcastMessage(byte[] message) {
+        for (String peerAddress : knownPeersAddresses) {
+            try {
+                String[] parts = peerAddress.split(":");
+                InetAddress address = InetAddress.getByName(parts[0]);
+                int targetPort = Integer.parseInt(parts[1]);
+
+                DatagramPacket packet = new DatagramPacket(message, message.length, address, targetPort);
+                datagramsocket.send(packet);
+
+            } catch (Exception e) {
+                System.err.println("Falha ao enviar mensagem para " + peerAddress + ": " + e.getMessage());
+            }
+        }
+    };
+    
 }
