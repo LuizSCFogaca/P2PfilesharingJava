@@ -42,6 +42,7 @@ Meanwhile, the compiled output files will be generated in the `bin` folder by de
 Após a execução, os três peers estarão online e prontos para sincronizar arquivos.
 
 ========= Para testar com arquivos =========
+    
     - Abra um quarto terminal para criar um .txt
 
     - Utilize o código: echo "Ficheiro de teste P2P" > C:\ ... \P2PFileSharing\tmp\peer1\oi.txt
